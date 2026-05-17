@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TexGen — 3D Texture Map Generator</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0b;
+    --bg2: #111113;
+    --bg3: #18181c;
+    --bg4: #1f1f24;
+    --border: rgba(255,255,255,0.07);
+    --border2: rgba(255,255,255,0.13);
+    --accent: #e8ff47;
+    --accent2: #b8ff00;
+    --text: #f0f0f2;
+    --muted: #6b6b78;
+    --muted2: #9a9aa8;
+    --rough: #ff9f47;
+    --color: #47c8ff;
+    --metal: #c0c0d0;
+    --normal: #7b8cff;
+    --danger: #ff4747;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── NOISE OVERLAY ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    background-size: 200px;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.4;
+  }
+
+  /* ── HEADER ── */
+  header {
+    position: relative; z-index: 10;
+    padding: 0 2.5rem;
+    height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    background: rgba(10,10,11,0.8);
+    backdrop-filter: blur(12px);
+    position: sticky; top: 0;
+  }
+  .logo {
+    font-size: 1.1rem; font-weight: 800; letter-spacing: -0.02em;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .logo-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+  .logo span { color: var(--accent); }
+  .header-tag {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem; color: var(--muted);
+    border: 1px solid var(--border2);
+    padding: 4px 10px; border-radius: 20px;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    position: relative; z-index: 1;
+    padding: 4rem 2.5rem 2rem;
+    max-width: 1200px; margin: 0 auto;
+  }
+  .hero-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem; color: var(--accent);
+    letter-spacing: 0.15em; text-transform: uppercase;
+    margin-bottom: 1rem;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .hero-label::before { content:''; width:24px; height:1px; background:var(--accent); }
+  h1 {
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    font-weight: 800; letter-spacing: -0.04em;
+    line-height: 1.1; margin-bottom: 1rem;
+  }
+  h1 em { color: var(--accent); font-style: normal; }
+  .hero-sub {
+    font-size: 1rem; color: var(--muted2);
+    max-width: 540px; line-height: 1.6;
+    font-family: 'DM Mono', monospace; font-weight: 300;
+  }
+
+  /* ── MAIN LAYOUT ── */
+  .app {
+    max-width: 1200px; margin: 0 auto;
+    padding: 1rem 2.5rem 4rem;
+    position: relative; z-index: 1;
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  /* ── SIDEBAR ── */
+  .sidebar { display: flex; flex-direction: column; gap: 1rem; position: sticky; top: 80px; }
+
+  /* ── DROPZONE ── */
+  .dropzone {
+    border: 1.5px dashed var(--border2);
+    border-radius: 16px;
+    padding: 2rem 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--bg2);
+    position: relative; overflow: hidden;
+  }
+  .dropzone::before {
+    content:''; position:absolute; inset:0;
+    background: radial-gradient(circle at 50% 0%, rgba(232,255,71,0.04) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .dropzone:hover, .dropzone.drag {
+    border-color: var(--accent);
+    background: rgba(232,255,71,0.03);
+  }
+  .dropzone input { display:none; }
+  .drop-icon {
+    width: 48px; height: 48px;
+    background: var(--bg3);
+    border: 1px solid var(--border2);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 1rem;
+    font-size: 1.4rem;
+  }
+  .dropzone h3 { font-size: 0.95rem; margin-bottom: 0.3rem; }
+  .dropzone p { font-size: 0.75rem; color: var(--muted); font-family: 'DM Mono', monospace; }
+
+  /* ── PREVIEW CARD ── */
+  .preview-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .preview-card canvas {
+    width: 100%; display: block;
+    image-rendering: pixelated;
+  }
+  .preview-info {
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .preview-info span { font-family: 'DM Mono', monospace; font-size: 0.7rem; color: var(--muted2); }
+
+  /* ── CONTROLS PANEL ── */
+  .controls-wrap {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .controls-header {
+    padding: 1rem 1.25rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .controls-header h4 { font-size: 0.85rem; font-weight: 600; }
+  .reset-btn {
+    background: none; border: none; cursor: pointer;
+    font-family: 'DM Mono', monospace; font-size: 0.7rem;
+    color: var(--muted); padding: 4px 8px;
+    border-radius: 6px; transition: color 0.15s;
+  }
+  .reset-btn:hover { color: var(--text); }
+  .controls-body { padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 0.9rem; }
+  .ctrl-row { display: flex; flex-direction: column; gap: 5px; }
+  .ctrl-row label {
+    font-size: 0.72rem; font-family: 'DM Mono', monospace;
+    color: var(--muted2); display: flex; justify-content: space-between;
+  }
+  .ctrl-row label span { color: var(--text); font-weight: 500; }
+  input[type=range] {
+    -webkit-appearance: none; width: 100%; height: 3px;
+    background: var(--bg4); border-radius: 2px; outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px;
+    border-radius: 50%; background: var(--accent); cursor: pointer;
+    box-shadow: 0 0 6px rgba(232,255,71,0.5);
+    transition: transform 0.1s;
+  }
+  input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+  .ctrl-row-color { display: flex; align-items: center; gap: 10px; }
+  .ctrl-row-color label { font-size: 0.72rem; font-family: 'DM Mono', monospace; color: var(--muted2); flex: 1; }
+  input[type=color] {
+    width: 32px; height: 28px; border: 1px solid var(--border2);
+    background: none; cursor: pointer; border-radius: 6px; padding: 2px;
+  }
+  .ctrl-divider { height: 1px; background: var(--border); margin: 0.25rem 0; }
+
+  /* ── MAP TABS ── */
+  .map-tabs { display: flex; gap: 6px; margin-bottom: 1rem; }
+  .map-tab {
+    padding: 7px 16px; border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    font-family: 'Syne', sans-serif; font-size: 0.8rem; font-weight: 600;
+    cursor: pointer; transition: all 0.15s; color: var(--muted2);
+    position: relative; overflow: hidden;
+  }
+  .map-tab::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; opacity:0; transition:opacity 0.15s; }
+  .map-tab[data-map=roughness]::before { background: var(--rough); }
+  .map-tab[data-map=color]::before { background: var(--color); }
+  .map-tab[data-map=metalness]::before { background: var(--metal); }
+  .map-tab[data-map=normal]::before { background: var(--normal); }
+  .map-tab.active {
+    background: var(--bg3); border-color: var(--border2); color: var(--text);
+  }
+  .map-tab.active::before { opacity: 1; }
+
+  /* ── CANVAS GRID ── */
+  .maps-area { display: flex; flex-direction: column; gap: 1rem; }
+  .map-panel { display: none; }
+  .map-panel.active { display: block; }
+  .map-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+  .map-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .map-card:hover { border-color: var(--border2); }
+  .map-card canvas {
+    width: 100%; display: block;
+    image-rendering: pixelated;
+    min-height: 120px;
+    background: #000;
+  }
+  .map-card-footer {
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .map-card-name {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 0.78rem; font-weight: 600;
+  }
+  .map-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .map-dot.roughness { background: var(--rough); }
+  .map-dot.color { background: var(--color); }
+  .map-dot.metalness { background: var(--metal); }
+  .map-dot.normal { background: var(--normal); }
+  .dl-btn {
+    background: none; border: 1px solid var(--border2);
+    color: var(--muted2); padding: 5px 12px;
+    border-radius: 7px; cursor: pointer;
+    font-family: 'DM Mono', monospace; font-size: 0.7rem;
+    transition: all 0.15s; display: flex; align-items: center; gap: 5px;
+  }
+  .dl-btn:hover { background: var(--bg3); color: var(--text); border-color: var(--border2); }
+  .dl-btn svg { width:13px; height:13px; }
+
+  /* ── ACTION BAR ── */
+  .action-bar {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    margin-top: 0.5rem;
+  }
+  .btn-primary {
+    background: var(--accent); color: #0a0a0b;
+    border: none; padding: 11px 22px;
+    border-radius: 10px; font-family: 'Syne', sans-serif;
+    font-weight: 700; font-size: 0.85rem; cursor: pointer;
+    transition: all 0.15s; display: flex; align-items: center; gap: 7px;
+  }
+  .btn-primary:hover { background: var(--accent2); transform: translateY(-1px); }
+  .btn-primary:active { transform: translateY(0); }
+  .btn-secondary {
+    background: var(--bg3); border: 1px solid var(--border2);
+    color: var(--text); padding: 11px 22px;
+    border-radius: 10px; font-family: 'Syne', sans-serif;
+    font-weight: 600; font-size: 0.85rem; cursor: pointer;
+    transition: all 0.15s; display: flex; align-items: center; gap: 7px;
+  }
+  .btn-secondary:hover { background: var(--bg4); }
+  .status-tag {
+    font-family: 'DM Mono', monospace; font-size: 0.72rem;
+    color: var(--muted2); margin-left: auto;
+  }
+  .status-tag.ok { color: #7bff9a; }
+  .status-tag.err { color: var(--danger); }
+
+  /* ── ALL MAPS VIEW ── */
+  .all-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+
+  /* ── FOOTER ── */
+  footer {
+    text-align: center; padding: 2rem;
+    font-family: 'DM Mono', monospace; font-size: 0.72rem;
+    color: var(--muted); border-top: 1px solid var(--border);
+    position: relative; z-index: 1;
+  }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; padding: 1rem 1.25rem 3rem; }
+    .sidebar { position: static; }
+    .hero { padding: 2.5rem 1.25rem 1.5rem; }
+    header { padding: 0 1.25rem; }
+    .map-grid, .all-grid { grid-template-columns: 1fr; }
+    .map-tabs { flex-wrap: wrap; }
+  }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+  .fade-up { animation: fadeUp 0.4s ease both; }
+
+  /* ── EMPTY STATE ── */
+  .empty-state {
+    border: 1px dashed var(--border);
+    border-radius: 14px;
+    padding: 4rem 2rem;
+    text-align: center;
+    color: var(--muted);
+  }
+  .empty-state p { font-family: 'DM Mono', monospace; font-size: 0.8rem; }
+  .empty-big { font-size: 2.5rem; margin-bottom: 1rem; }
+
+  /* ── TOAST ── */
+  .toast {
+    position: fixed; bottom: 2rem; right: 2rem;
+    background: var(--bg3); border: 1px solid var(--border2);
+    border-radius: 10px; padding: 12px 18px;
+    font-family: 'DM Mono', monospace; font-size: 0.78rem;
+    color: var(--text); z-index: 1000;
+    transform: translateY(20px); opacity: 0;
+    transition: all 0.2s; pointer-events: none;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-dot"></div>
+    Tex<span>Gen</span>
+  </div>
+  <div class="header-tag">v1.0 · UV Texture Generator</div>
+</header>
+
+<div class="hero">
+  <div class="hero-label">3D Clothing Texture Tool</div>
+  <h1>Generate <em>PBR Maps</em><br>dari UV Cage</h1>
+  <p class="hero-sub">Upload UV cage PNG kamu — roughness, color, metalness, dan normal map langsung jadi. No Photoshop, no Substance.</p>
+</div>
+
+<div class="app">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <!-- DROPZONE -->
+    <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+      <input type="file" id="fileInput" accept="image/*">
+      <div class="drop-icon">📁</div>
+      <h3>Upload UV Cage PNG</h3>
+      <p>Drag & drop atau klik di sini<br>PNG / JPG / WEBP</p>
+    </div>
+
+    <!-- PREVIEW -->
+    <div class="preview-card" id="previewCard" style="display:none">
+      <canvas id="previewCanvas"></canvas>
+      <div class="preview-info">
+        <span id="previewDim">—</span>
+        <span id="previewName">—</span>
+      </div>
+    </div>
+
+    <!-- CONTROLS per MAP -->
+    <div class="controls-wrap" id="controlsWrap" style="display:none">
+
+      <!-- ROUGHNESS CONTROLS -->
+      <div id="ctrl-roughness">
+        <div class="controls-header">
+          <h4>⚙ Roughness Settings</h4>
+          <button class="reset-btn" onclick="resetControls('roughness')">Reset</button>
+        </div>
+        <div class="controls-body">
+          <div class="ctrl-row">
+            <label>Base Roughness <span id="v-roughBase">180</span></label>
+            <input type="range" min="0" max="255" step="1" value="180" id="roughBase" oninput="sv('roughBase','v-roughBase');genRoughness()">
+          </div>
+          <div class="ctrl-row">
+            <label>Edge Darkening <span id="v-roughEdge">50</span></label>
+            <input type="range" min="0" max="120" step="1" value="50" id="roughEdge" oninput="sv('roughEdge','v-roughEdge');genRoughness()">
+          </div>
+          <div class="ctrl-row">
+            <label>Seam Threshold <span id="v-roughThresh">70</span></label>
+            <input type="range" min="10" max="200" step="1" value="70" id="roughThresh" oninput="sv('roughThresh','v-roughThresh');genRoughness()">
+          </div>
+          <div class="ctrl-row">
+            <label>Contrast <span id="v-roughContrast">1.3</span></label>
+            <input type="range" min="0.5" max="4" step="0.1" value="1.3" id="roughContrast" oninput="sv('roughContrast','v-roughContrast');genRoughness()">
+          </div>
+          <div class="ctrl-row">
+            <label>Invert <span id="v-roughInv">0</span></label>
+            <input type="range" min="0" max="1" step="1" value="0" id="roughInv" oninput="sv('roughInv','v-roughInv');genRoughness()">
+          </div>
+        </div>
+      </div>
+
+      <!-- COLOR CONTROLS -->
+      <div id="ctrl-color" style="display:none">
+        <div class="controls-header">
+          <h4>🎨 Color / Albedo Settings</h4>
+          <button class="reset-btn" onclick="resetControls('color')">Reset</button>
+        </div>
+        <div class="controls-body">
+          <div class="ctrl-row-color">
+            <label>Warna Dasar</label>
+            <input type="color" id="colorBase" value="#1e1e1e" oninput="genColor()">
+          </div>
+          <div class="ctrl-row-color">
+            <label>Warna Seam</label>
+            <input type="color" id="colorSeam" value="#0a0a0a" oninput="genColor()">
+          </div>
+          <div class="ctrl-row-color">
+            <label>Warna Highlight</label>
+            <input type="color" id="colorHighlight" value="#2a2a2a" oninput="genColor()">
+          </div>
+          <div class="ctrl-divider"></div>
+          <div class="ctrl-row">
+            <label>Seam Intensity <span id="v-colorSeamInt">70</span></label>
+            <input type="range" min="0" max="100" step="1" value="70" id="colorSeamInt" oninput="sv('colorSeamInt','v-colorSeamInt');genColor()">
+          </div>
+          <div class="ctrl-row">
+            <label>Brightness <span id="v-colorBright">0</span></label>
+            <input type="range" min="-100" max="100" step="1" value="0" id="colorBright" oninput="sv('colorBright','v-colorBright');genColor()">
+          </div>
+          <div class="ctrl-row">
+            <label>Saturation <span id="v-colorSat">100</span></label>
+            <input type="range" min="0" max="200" step="1" value="100" id="colorSat" oninput="sv('colorSat','v-colorSat');genColor()">
+          </div>
+          <div class="ctrl-row">
+            <label>Seam Threshold <span id="v-colorThresh">60</span></label>
+            <input type="range" min="10" max="200" step="1" value="60" id="colorThresh" oninput="sv('colorThresh','v-colorThresh');genColor()">
+          </div>
+        </div>
+      </div>
+
+      <!-- METALNESS CONTROLS -->
+      <div id="ctrl-metalness" style="display:none">
+        <div class="controls-header">
+          <h4>⚡ Metalness Settings</h4>
+          <button class="reset-btn" onclick="resetControls('metalness')">Reset</button>
+        </div>
+        <div class="controls-body">
+          <div class="ctrl-row">
+            <label>Base Metalness <span id="v-metalBase">15</span></label>
+            <input type="range" min="0" max="255" step="1" value="15" id="metalBase" oninput="sv('metalBase','v-metalBase');genMetalness()">
+          </div>
+          <div class="ctrl-row">
+            <label>Seam Metalness <span id="v-metalSeam">80</span></label>
+            <input type="range" min="0" max="255" step="1" value="80" id="metalSeam" oninput="sv('metalSeam','v-metalSeam');genMetalness()">
+          </div>
+          <div class="ctrl-row">
+            <label>Seam Threshold <span id="v-metalThresh">80</span></label>
+            <input type="range" min="10" max="200" step="1" value="80" id="metalThresh" oninput="sv('metalThresh','v-metalThresh');genMetalness()">
+          </div>
+          <div class="ctrl-row">
+            <label>Contrast <span id="v-metalContrast">2.0</span></label>
+            <input type="range" min="0.5" max="4" step="0.1" value="2.0" id="metalContrast" oninput="sv('metalContrast','v-metalContrast');genMetalness()">
+          </div>
+        </div>
+      </div>
+
+      <!-- NORMAL CONTROLS -->
+      <div id="ctrl-normal" style="display:none">
+        <div class="controls-header">
+          <h4>🗺 Normal Map Settings</h4>
+          <button class="reset-btn" onclick="resetControls('normal')">Reset</button>
+        </div>
+        <div class="controls-body">
+          <div class="ctrl-row">
+            <label>Strength <span id="v-normalStr">2.5</span></label>
+            <input type="range" min="0.2" max="8" step="0.1" value="2.5" id="normalStr" oninput="sv('normalStr','v-normalStr');genNormal()">
+          </div>
+          <div class="ctrl-row">
+            <label>Smooth (Pre-blur) <span id="v-normalBlur">1</span></label>
+            <input type="range" min="0" max="4" step="0.5" value="1" id="normalBlur" oninput="sv('normalBlur','v-normalBlur');genNormal()">
+          </div>
+          <div class="ctrl-row">
+            <label>Invert Y (DirectX) <span id="v-normalInvY">0</span></label>
+            <input type="range" min="0" max="1" step="1" value="0" id="normalInvY" oninput="sv('normalInvY','v-normalInvY');genNormal()">
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /controls-wrap -->
+  </div><!-- /sidebar -->
+
+  <!-- MAIN AREA -->
+  <div class="maps-area">
+
+    <!-- EMPTY STATE -->
+    <div class="empty-state" id="emptyState">
+      <div class="empty-big">🗂</div>
+      <p>Upload UV cage PNG kamu dulu<br>di panel kiri untuk mulai generate</p>
+    </div>
+
+    <!-- MAP TABS + PANELS (hidden until image loaded) -->
+    <div id="mapsContent" style="display:none">
+      <div class="map-tabs">
+        <div class="map-tab active" data-map="roughness" onclick="switchMap('roughness')">Roughness</div>
+        <div class="map-tab" data-map="color" onclick="switchMap('color')">Color</div>
+        <div class="map-tab" data-map="metalness" onclick="switchMap('metalness')">Metalness</div>
+        <div class="map-tab" data-map="normal" onclick="switchMap('normal')">Normal</div>
+        <div class="map-tab" data-map="all" onclick="switchMap('all')">Semua</div>
+      </div>
+
+      <!-- ROUGHNESS PANEL -->
+      <div class="map-panel active" id="panel-roughness">
+        <div class="map-grid">
+          <div class="map-card" style="grid-column:1/-1">
+            <canvas id="canvasRoughness"></canvas>
+            <div class="map-card-footer">
+              <div class="map-card-name"><div class="map-dot roughness"></div>Roughness Map</div>
+              <button class="dl-btn" onclick="downloadCanvas('canvasRoughness','roughness_map.png')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+                Download PNG
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- COLOR PANEL -->
+      <div class="map-panel" id="panel-color">
+        <div class="map-grid">
+          <div class="map-card" style="grid-column:1/-1">
+            <canvas id="canvasColor"></canvas>
+            <div class="map-card-footer">
+              <div class="map-card-name"><div class="map-dot color"></div>Color / Albedo Map</div>
+              <button class="dl-btn" onclick="downloadCanvas('canvasColor','color_map.png')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+                Download PNG
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- METALNESS PANEL -->
+      <div class="map-panel" id="panel-metalness">
+        <div class="map-grid">
+          <div class="map-card" style="grid-column:1/-1">
+            <canvas id="canvasMetalness"></canvas>
+            <div class="map-card-footer">
+              <div class="map-card-name"><div class="map-dot metalness"></div>Metalness Map</div>
+              <button class="dl-btn" onclick="downloadCanvas('canvasMetalness','metalness_map.png')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+                Download PNG
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- NORMAL PANEL -->
+      <div class="map-panel" id="panel-normal">
+        <div class="map-grid">
+          <div class="map-card" style="grid-column:1/-1">
+            <canvas id="canvasNormal"></canvas>
+            <div class="map-card-footer">
+              <div class="map-card-name"><div class="map-dot normal"></div>Normal Map</div>
+              <button class="dl-btn" onclick="downloadCanvas('canvasNormal','normal_map.png')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+                Download PNG
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ALL PANEL -->
+      <div class="map-panel" id="panel-all">
+        <div class="all-grid">
+          <div class="map-card">
+            <canvas id="canvasRoughness2"></canvas>
+            <div class="map-card-footer">
+              <div class="map-card-name"><div class="map-dot roughness"></div>Roughness</div>
+              <button class="dl-btn" onclick="downloadCanvas('canvasRoughness','roughness_map.png')">↓</button>
+            </div>
+          </div>
+          <div class="map-card">
+            <canvas id="canvasColor2"></canvas>
+            <div class="map-card-footer">
+              <div class="map-card-name"><div class="map-dot color"></div>Color</div>
+              <button class="dl-btn" onclick="downloadCanvas('canvasColor','color_map.png')">↓</button>
+            </div>
+          </div>
+          <div class="map-card">
+            <canvas id="canvasMetalness2"></canvas>
+            <div class="map-card-footer">
+              <div class="map-card-name"><div class="map-dot metalness"></div>Metalness</div>
+              <button class="dl-btn" onclick="downloadCanvas('canvasMetalness','metalness_map.png')">↓</button>
+            </div>
+          </div>
+          <div class="map-card">
+            <canvas id="canvasNormal2"></canvas>
+            <div class="map-card-footer">
+              <div class="map-card-name"><div class="map-dot normal"></div>Normal</div>
+              <button class="dl-btn" onclick="downloadCanvas('canvasNormal','normal_map.png')">↓</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ACTION BAR -->
+      <div class="action-bar">
+        <button class="btn-primary" onclick="downloadAll()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12l7 7 7-7"/><rect x="3" y="19" width="18" height="2" rx="1"/></svg>
+          Download Semua (ZIP)
+        </button>
+        <button class="btn-secondary" onclick="regenAll()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+          Regenerate
+        </button>
+        <span class="status-tag" id="statusTag">—</span>
+      </div>
+    </div>
+
+  </div><!-- /maps-area -->
+</div><!-- /app -->
+
+<footer>
+  TexGen · Dibuat untuk workflow 3D clothing · Semua proses di browser, tidak ada upload ke server
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<!-- JSZip CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+<script>
+let srcData = null, W = 0, H = 0, grayCache = null;
+let currentMap = 'roughness';
+let currentFile = null;
+
+// ── HELPERS ──
+function sv(inputId, spanId) {
+  document.getElementById(spanId).textContent = document.getElementById(inputId).value;
+}
+function clamp(v) { return Math.max(0, Math.min(255, Math.round(v))); }
+function getGray(d, i) { return 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2]; }
+function applyContrast(v, c, mid=128) { return clamp(mid + (v - mid) * c); }
+function hexToRgb(hex) {
+  return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
+}
+
+// ── TOAST ──
+function toast(msg, type='ok') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show';
+  setTimeout(() => t.className = 'toast', 2200);
+}
+
+// ── UPLOAD ──
+const dz = document.getElementById('dropzone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); loadFile(e.dataTransfer.files[0]); });
+document.getElementById('fileInput').addEventListener('change', e => loadFile(e.target.files[0]));
+
+function loadFile(file) {
+  if (!file) return;
+  currentFile = file;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      W = img.width; H = img.height;
+      const tmp = document.createElement('canvas');
+      tmp.width = W; tmp.height = H;
+      const ctx = tmp.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      srcData = ctx.getImageData(0, 0, W, H);
+
+      // Build gray cache
+      grayCache = new Float32Array(W * H);
+      for (let i = 0; i < W*H; i++) grayCache[i] = getGray(srcData.data, i*4);
+
+      // Preview
+      const pc = document.getElementById('previewCanvas');
+      pc.width = W; pc.height = H;
+      pc.getContext('2d').putImageData(srcData, 0, 0);
+      document.getElementById('previewCard').style.display = '';
+      document.getElementById('previewDim').textContent = W + '×' + H;
+      document.getElementById('previewName').textContent = file.name.length > 20 ? file.name.slice(0,17)+'…' : file.name;
+
+      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('mapsContent').style.display = '';
+      document.getElementById('controlsWrap').style.display = '';
+
+      setStatus('Generating maps…');
+      regenAll();
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+// ── STATUS ──
+function setStatus(msg, type='') {
+  const el = document.getElementById('statusTag');
+  el.textContent = msg;
+  el.className = 'status-tag' + (type ? ' '+type : '');
+}
+
+// ── SWITCH MAP ──
+function switchMap(name) {
+  currentMap = name;
+  document.querySelectorAll('.map-tab').forEach(t => t.classList.toggle('active', t.dataset.map === name));
+  document.querySelectorAll('.map-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-'+name).classList.add('active');
+  // Controls
+  ['roughness','color','metalness','normal'].forEach(m => {
+    const el = document.getElementById('ctrl-'+m);
+    if (el) el.style.display = (m === name || name === 'all') && name !== 'all' ? '' : 'none';
+  });
+  if (name === 'all') {
+    copyToAlt('canvasRoughness','canvasRoughness2');
+    copyToAlt('canvasColor','canvasColor2');
+    copyToAlt('canvasMetalness','canvasMetalness2');
+    copyToAlt('canvasNormal','canvasNormal2');
+    document.getElementById('ctrl-roughness').style.display = 'none';
+  }
+}
+
+function copyToAlt(srcId, dstId) {
+  const src = document.getElementById(srcId);
+  const dst = document.getElementById(dstId);
+  if (!src.width) return;
+  dst.width = src.width; dst.height = src.height;
+  dst.getContext('2d').drawImage(src, 0, 0);
+}
+
+// ── GENERATE ROUGHNESS ──
+function genRoughness() {
+  if (!srcData) return;
+  const base = parseInt(document.getElementById('roughBase').value);
+  const edge = parseInt(document.getElementById('roughEdge').value);
+  const thresh = parseInt(document.getElementById('roughThresh').value);
+  const contrast = parseFloat(document.getElementById('roughContrast').value);
+  const invert = parseInt(document.getElementById('roughInv').value);
+  const d = srcData.data;
+  const out = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const idx = (y*W+x)*4;
+      if (d[idx+3] < 5) { out[idx]=out[idx+1]=out[idx+2]=0; out[idx+3]=255; continue; }
+      const g = grayCache[y*W+x] * 255;
+      const isSeam = g < thresh;
+      let val = isSeam ? clamp(base - edge) : base;
+      if (invert) val = 255 - val;
+      val = applyContrast(val, contrast);
+      out[idx]=out[idx+1]=out[idx+2]=val; out[idx+3]=255;
+    }
+  }
+  putCanvas('canvasRoughness', out);
+  if (currentMap === 'all') copyToAlt('canvasRoughness','canvasRoughness2');
+}
+
+// ── GENERATE COLOR ──
+function genColor() {
+  if (!srcData) return;
+  const [br,bg,bb] = hexToRgb(document.getElementById('colorBase').value);
+  const [sr,sg,sb] = hexToRgb(document.getElementById('colorSeam').value);
+  const [hr,hg,hb] = hexToRgb(document.getElementById('colorHighlight').value);
+  const seamInt = parseInt(document.getElementById('colorSeamInt').value)/100;
+  const bright = parseInt(document.getElementById('colorBright').value);
+  const sat = parseInt(document.getElementById('colorSat').value)/100;
+  const thresh = parseInt(document.getElementById('colorThresh').value);
+  const d = srcData.data;
+  const out = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const idx = (y*W+x)*4;
+      if (d[idx+3] < 5) { out[idx]=out[idx+1]=out[idx+2]=0; out[idx+3]=255; continue; }
+      const g = grayCache[y*W+x] * 255;
+      let t = g < thresh ? seamInt : 0;
+      // highlight at bright UV areas
+      let ht = g > 200 ? 0.3 : 0;
+      let r = br*(1-t-ht) + sr*t + hr*ht;
+      let gv = bg*(1-t-ht) + sg*t + hg*ht;
+      let bv = bb*(1-t-ht) + sb*t + hb*ht;
+      r = clamp(r+bright); gv = clamp(gv+bright); bv = clamp(bv+bright);
+      const lum = 0.299*r + 0.587*gv + 0.114*bv;
+      r = clamp(lum + sat*(r-lum)); gv = clamp(lum + sat*(gv-lum)); bv = clamp(lum + sat*(bv-lum));
+      out[idx]=r; out[idx+1]=gv; out[idx+2]=bv; out[idx+3]=255;
+    }
+  }
+  putCanvas('canvasColor', out);
+  if (currentMap === 'all') copyToAlt('canvasColor','canvasColor2');
+}
+
+// ── GENERATE METALNESS ──
+function genMetalness() {
+  if (!srcData) return;
+  const baseM = parseInt(document.getElementById('metalBase').value);
+  const seamM = parseInt(document.getElementById('metalSeam').value);
+  const thresh = parseInt(document.getElementById('metalThresh').value);
+  const contrast = parseFloat(document.getElementById('metalContrast').value);
+  const d = srcData.data;
+  const out = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const idx = (y*W+x)*4;
+      if (d[idx+3] < 5) { out[idx]=out[idx+1]=out[idx+2]=0; out[idx+3]=255; continue; }
+      const g = grayCache[y*W+x] * 255;
+      let val = g < thresh ? seamM : baseM;
+      val = applyContrast(val, contrast);
+      out[idx]=out[idx+1]=out[idx+2]=val; out[idx+3]=255;
+    }
+  }
+  putCanvas('canvasMetalness', out);
+  if (currentMap === 'all') copyToAlt('canvasMetalness','canvasMetalness2');
+}
+
+// ── GENERATE NORMAL ──
+function genNormal() {
+  if (!srcData) return;
+  const strength = parseFloat(document.getElementById('normalStr').value);
+  const invertY = parseInt(document.getElementById('normalInvY').value);
+  const blurAmt = parseFloat(document.getElementById('normalBlur').value);
+  let g = grayCache;
+
+  // Optional pre-blur (box blur approx)
+  if (blurAmt > 0) {
+    const blurred = new Float32Array(W * H);
+    const r = Math.max(1, Math.round(blurAmt));
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        let sum = 0, cnt = 0;
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            const ny = Math.min(H-1, Math.max(0, y+dy));
+            const nx2 = Math.min(W-1, Math.max(0, x+dx));
+            sum += grayCache[ny*W+nx2]; cnt++;
+          }
+        }
+        blurred[y*W+x] = sum/cnt;
+      }
+    }
+    g = blurred;
+  }
+
+  const out = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = y*W+x;
+      const idx = i*4;
+      const alpha = srcData.data[idx+3];
+      if (alpha < 5) { out[idx]=128; out[idx+1]=128; out[idx+2]=255; out[idx+3]=255; continue; }
+      const l = x > 0 ? g[i-1] : g[i];
+      const r2 = x < W-1 ? g[i+1] : g[i];
+      const u = y > 0 ? g[i-W] : g[i];
+      const dn = y < H-1 ? g[i+W] : g[i];
+      let nx = (l - r2) * strength;
+      let ny = (u - dn) * strength;
+      if (invertY) ny = -ny;
+      let nz = 1.0;
+      const len = Math.sqrt(nx*nx + ny*ny + nz*nz);
+      nx /= len; ny /= len; nz /= len;
+      out[idx]   = clamp((nx*0.5+0.5)*255);
+      out[idx+1] = clamp((ny*0.5+0.5)*255);
+      out[idx+2] = clamp((nz*0.5+0.5)*255);
+      out[idx+3] = 255;
+    }
+  }
+  putCanvas('canvasNormal', out);
+  if (currentMap === 'all') copyToAlt('canvasNormal','canvasNormal2');
+}
+
+function putCanvas(id, out) {
+  const c = document.getElementById(id);
+  c.width = W; c.height = H;
+  c.getContext('2d').putImageData(new ImageData(out, W, H), 0, 0);
+}
+
+function regenAll() {
+  if (!srcData) return;
+  genRoughness(); genColor(); genMetalness(); genNormal();
+  setStatus('Semua maps siap ✓', 'ok');
+}
+
+// ── DOWNLOAD SINGLE ──
+function downloadCanvas(id, filename) {
+  const c = document.getElementById(id);
+  if (!c.width) { toast('Map belum di-generate'); return; }
+  const a = document.createElement('a');
+  a.href = c.toDataURL('image/png');
+  a.download = filename;
+  a.click();
+  toast('Download: ' + filename);
+}
+
+// ── DOWNLOAD ALL ZIP ──
+async function downloadAll() {
+  if (!srcData) { toast('Upload gambar dulu!'); return; }
+  setStatus('Membuat ZIP…');
+  const maps = [
+    ['canvasRoughness','roughness_map.png'],
+    ['canvasColor','color_map.png'],
+    ['canvasMetalness','metalness_map.png'],
+    ['canvasNormal','normal_map.png'],
+  ];
+  const zip = new JSZip();
+  for (const [id, name] of maps) {
+    const c = document.getElementById(id);
+    if (!c.width) continue;
+    const blob = await new Promise(res => c.toBlob(res, 'image/png'));
+    zip.file(name, blob);
+  }
+  // Also add a README
+  const fname = currentFile ? currentFile.name.replace(/\.[^.]+$/,'') : 'uvcage';
+  zip.file('CARA_PAKAI.txt',
+`TexGen — PBR Texture Maps
+Generated dari: ${fname}
+
+Files:
+- roughness_map.png → map_Roughness di MTL / Roughness slot di Blender
+- color_map.png     → map_Kd / Base Color
+- metalness_map.png → map_Metalness / Metallic slot
+- normal_map.png    → map_Bump / Normal slot (OpenGL format)
+
+Kalau pakai DirectX normal map, centang "Invert Y" di settings Normal Map.
+`);
+  const blob = await zip.generateAsync({type:'blob'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fname + '_texture_maps.zip';
+  a.click();
+  URL.revokeObjectURL(url);
+  setStatus('ZIP didownload ✓', 'ok');
+  toast('ZIP berhasil didownload!');
+}
+
+// ── RESET CONTROLS ──
+const defaults = {
+  roughness: { roughBase:180, roughEdge:50, roughThresh:70, roughContrast:1.3, roughInv:0 },
+  color: { colorBase:'#1e1e1e', colorSeam:'#0a0a0a', colorHighlight:'#2a2a2a', colorSeamInt:70, colorBright:0, colorSat:100, colorThresh:60 },
+  metalness: { metalBase:15, metalSeam:80, metalThresh:80, metalContrast:2.0 },
+  normal: { normalStr:2.5, normalBlur:1, normalInvY:0 }
+};
+const valSpans = {
+  roughBase:'v-roughBase', roughEdge:'v-roughEdge', roughThresh:'v-roughThresh',
+  roughContrast:'v-roughContrast', roughInv:'v-roughInv',
+  colorSeamInt:'v-colorSeamInt', colorBright:'v-colorBright', colorSat:'v-colorSat', colorThresh:'v-colorThresh',
+  metalBase:'v-metalBase', metalSeam:'v-metalSeam', metalThresh:'v-metalThresh', metalContrast:'v-metalContrast',
+  normalStr:'v-normalStr', normalBlur:'v-normalBlur', normalInvY:'v-normalInvY'
+};
+function resetControls(map) {
+  const d = defaults[map];
+  for (const [k, v] of Object.entries(d)) {
+    const el = document.getElementById(k);
+    if (!el) continue;
+    el.value = v;
+    if (valSpans[k]) document.getElementById(valSpans[k]).textContent = v;
+  }
+  if (map === 'roughness') genRoughness();
+  else if (map === 'color') genColor();
+  else if (map === 'metalness') genMetalness();
+  else if (map === 'normal') genNormal();
+  toast('Reset ke default');
+}
+
+// ── INIT CONTROLS DISPLAY ──
+document.getElementById('ctrl-color').style.display = 'none';
+document.getElementById('ctrl-metalness').style.display = 'none';
+document.getElementById('ctrl-normal').style.display = 'none';
+</script>
+</body>
+</html>
