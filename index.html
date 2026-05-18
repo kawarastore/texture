@@ -755,7 +755,7 @@
               <input type="range" min="50" max="255" step="1" value="160" id="frRough" oninput="fvRough.textContent=this.value;fabricRenderActive()">
             </div>
             <div class="fab-ctrl">
-              <label>Wear <span id="fvWear">20</span>%</label>
+              <label>Blend/Wear <span id="fvWear">20</span>%</label>
               <input type="range" min="0" max="100" step="1" value="20" id="frWear" oninput="fvWear.textContent=this.value;fabricRenderActive()">
             </div>
           </div>
@@ -792,7 +792,7 @@
 
         <!-- action buttons -->
         <div class="fab-actions">
-          <button class="fab-btn-apply" onclick="fabricApplyToMaps()">✦ Terapkan ke Maps</button>
+          <button class="fab-btn-apply" id="fabApplyBtn" onclick="fabricApplyToMaps()">✦ Terapkan ke Maps</button>
           <button class="fab-btn-dl" onclick="fabricDownloadPack()">⬇ ZIP</button>
         </div>
         <div class="fab-status" id="fabStatus">Pilih template di atas</div>
@@ -889,6 +889,9 @@ function loadFile(file) {
 
       setStatus('Generating maps…', 'loading');
       regenAll();
+      /* update label tombol fabric */
+      const fabBtn = document.getElementById('fabApplyBtn');
+      if (fabBtn) fabBtn.textContent = '✦ Blend Fabric ke UV';
     };
     img.src = e.target.result;
   };
@@ -1422,26 +1425,115 @@ function buildFabricGrid() {
   });
 }
 
-/* ── APPLY TO MAPS: tulis fabric ke canvasRoughness, canvasColor, dll ── */
+/* ── APPLY TO MAPS ──────────────────────────────────────────────────────
+   Mode A (ada UV cage): fabric di-BLEND di atas UV maps yang sudah ada.
+     - Color/Albedo  → multiply blend (gelap = fabric texture nempel di kain)
+     - Roughness     → average (fabric roughness + UV roughness)
+     - Normal        → additive blend (detail fabric + detail UV)
+     - Metalness     → max (ambil yang paling metalik)
+   Mode B (belum ada UV cage): fabric langsung jadi maps standalone.
+──────────────────────────────────────────────────────────────────────── */
 function fabricApplyToMaps() {
   const tmpl = getFabActiveTmpl();
   const st = document.getElementById('fabStatus');
   st.textContent = 'Generating…';
   st.className = 'fab-status';
 
-  /* generate full-size 1024×1024 */
-  const OUT = 1024;
-  const maps = generateFabricMaps(tmpl, OUT);
-
-  /* show mapsContent jika belum ada UV cage yang di-upload */
   document.getElementById('emptyState').style.display = 'none';
   document.getElementById('mapsContent').style.display = '';
 
-  /* tulis ke main canvas */
-  putCanvas('canvasRoughness', maps.roughMap,  OUT, OUT);
-  putCanvas('canvasColor',     maps.albedo,    OUT, OUT);
-  putCanvas('canvasMetalness', maps.metalMap,  OUT, OUT);
-  putCanvas('canvasNormal',    maps.normalMap, OUT, OUT);
+  if (!srcData) {
+    /* ── MODE B: standalone, tidak ada UV cage ── */
+    const OUT  = 1024;
+    const maps = generateFabricMaps(tmpl, OUT);
+    putCanvas('canvasRoughness', maps.roughMap,  OUT, OUT);
+    putCanvas('canvasColor',     maps.albedo,    OUT, OUT);
+    putCanvas('canvasMetalness', maps.metalMap,  OUT, OUT);
+    putCanvas('canvasNormal',    maps.normalMap, OUT, OUT);
+  } else {
+    /* ── MODE A: blend fabric di atas UV cage yang sudah di-generate ── */
+    /* Ukuran mengikuti UV cage asli */
+    const OUT = W;
+
+    /* Generate fabric di ukuran yang sama dengan UV cage */
+    const fab = generateFabricMaps(tmpl, OUT);
+
+    /* Helper: ambil ImageData dari canvas yang sudah ada */
+    function getExistingPixels(canvasId) {
+      const c = document.getElementById(canvasId);
+      if (!c || !c.width) return null;
+      return c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    }
+
+    const uvRough  = getExistingPixels('canvasRoughness');
+    const uvColor  = getExistingPixels('canvasColor');
+    const uvMetal  = getExistingPixels('canvasMetalness');
+    const uvNormal = getExistingPixels('canvasNormal');
+
+    const N = OUT * OUT * 4;
+
+    /* Strength slider dari panel (pakai wear sebagai blend strength 0–1) */
+    const blendStr = tmpl.wear / 100;   /* wear 0% = texture tipis, 100% = full texture */
+
+    /* ── COLOR: multiply blend ── */
+    const outColor = new Uint8ClampedArray(N);
+    for (let i = 0; i < N; i += 4) {
+      if (uvColor) {
+        /* multiply: gelap di fabric → gelap di UV (efek texture kain menempel) */
+        const mr = (uvColor[i]   / 255) * (fab.albedo[i]   / 255);
+        const mg = (uvColor[i+1] / 255) * (fab.albedo[i+1] / 255);
+        const mb = (uvColor[i+2] / 255) * (fab.albedo[i+2] / 255);
+        /* lerp antara UV asli dan hasil multiply berdasar blendStr */
+        outColor[i]   = clamp(uvColor[i]   * (1-blendStr) + mr*255*blendStr);
+        outColor[i+1] = clamp(uvColor[i+1] * (1-blendStr) + mg*255*blendStr);
+        outColor[i+2] = clamp(uvColor[i+2] * (1-blendStr) + mb*255*blendStr);
+        outColor[i+3] = 255;
+      } else {
+        outColor[i]=fab.albedo[i]; outColor[i+1]=fab.albedo[i+1];
+        outColor[i+2]=fab.albedo[i+2]; outColor[i+3]=255;
+      }
+    }
+
+    /* ── ROUGHNESS: average ── */
+    const outRough = new Uint8ClampedArray(N);
+    for (let i = 0; i < N; i += 4) {
+      const base = uvRough ? uvRough[i] : 128;
+      const fab_r = fab.roughMap[i];
+      outRough[i] = outRough[i+1] = outRough[i+2] = clamp(base*(1-blendStr) + fab_r*blendStr);
+      outRough[i+3] = 255;
+    }
+
+    /* ── METALNESS: max ── */
+    const outMetal = new Uint8ClampedArray(N);
+    for (let i = 0; i < N; i += 4) {
+      const base   = uvMetal ? uvMetal[i] : 0;
+      const fab_m  = fab.metalMap[i];
+      outMetal[i]  = outMetal[i+1] = outMetal[i+2] = clamp(Math.max(base, fab_m * blendStr));
+      outMetal[i+3] = 255;
+    }
+
+    /* ── NORMAL: additive blend (average dengan bobot, bukan full replace) ── */
+    const outNormal = new Uint8ClampedArray(N);
+    for (let i = 0; i < N; i += 4) {
+      /* normal map: 128 = flat. Offset dari 128 = arah. */
+      /* Blend additive: tambahkan offset fabric ke offset UV */
+      const uvNx = uvNormal ? uvNormal[i]   - 128 : 0;
+      const uvNy = uvNormal ? uvNormal[i+1] - 128 : 0;
+      const uvNz = uvNormal ? uvNormal[i+2] - 128 : 127;
+      const fbNx = fab.normalMap[i]   - 128;
+      const fbNy = fab.normalMap[i+1] - 128;
+      const fbNz = fab.normalMap[i+2] - 128;
+      outNormal[i]   = clamp(128 + uvNx + fbNx * blendStr * 0.5);
+      outNormal[i+1] = clamp(128 + uvNy + fbNy * blendStr * 0.5);
+      outNormal[i+2] = clamp(128 + Math.max(uvNz, fbNz));
+      outNormal[i+3] = 255;
+    }
+
+    putCanvas('canvasRoughness', outRough,  OUT, OUT);
+    putCanvas('canvasColor',     outColor,  OUT, OUT);
+    putCanvas('canvasMetalness', outMetal,  OUT, OUT);
+    putCanvas('canvasNormal',    outNormal, OUT, OUT);
+  }
 
   if (currentMap === 'all') {
     copyToAlt('canvasRoughness','canvasRoughness2');
@@ -1450,10 +1542,15 @@ function fabricApplyToMaps() {
     copyToAlt('canvasNormal','canvasNormal2');
   }
 
-  setStatus(`Fabric: ${tmpl.name} ✓`, 'ok');
-  st.textContent = `Diterapkan: ${tmpl.name} ✓`;
+  setStatus(`Fabric blended: ${tmpl.name} ✓`, 'ok');
+  st.textContent = srcData
+    ? `Blended ke UV: ${tmpl.name} ✓`
+    : `Standalone: ${tmpl.name} ✓`;
   st.className = 'fab-status ok';
-  toast(`Fabric "${tmpl.name}" diterapkan ke maps!`);
+  toast(srcData
+    ? `Fabric "${tmpl.name}" di-blend ke UV maps kamu!`
+    : `Fabric "${tmpl.name}" diterapkan (standalone)!`
+  );
 }
 
 /* ── DOWNLOAD FABRIC PACK (ZIP 4 maps) ── */
