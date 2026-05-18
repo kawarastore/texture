@@ -949,28 +949,48 @@ function genRoughness() {
 
 function genColor() {
   if (!srcData) return;
-  const [br,bg,bb] = hexToRgb(document.getElementById('colorBase').value);
   const [sr,sg,sb] = hexToRgb(document.getElementById('colorSeam').value);
-  const [hr,hg,hb] = hexToRgb(document.getElementById('colorHighlight').value);
-  const seamInt = parseInt(document.getElementById('colorSeamInt').value)/100;
-  const bright  = parseInt(document.getElementById('colorBright').value);
-  const sat     = parseInt(document.getElementById('colorSat').value)/100;
-  const thresh  = parseInt(document.getElementById('colorThresh').value);
-  const d = srcData.data;
+  const seamInt    = parseInt(document.getElementById('colorSeamInt').value)/100;
+  const bright     = parseInt(document.getElementById('colorBright').value);
+  const sat        = parseInt(document.getElementById('colorSat').value)/100;
+  const thresh     = parseInt(document.getElementById('colorThresh').value);
+  const tintColor  = hexToRgb(document.getElementById('colorBase').value);
+  const tintAmt    = 0; // ubah ke 0.0-0.5 jika ingin tint
+
+  const d   = srcData.data;
   const out = new Uint8ClampedArray(W * H * 4);
+
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const idx = (y*W+x)*4;
-      if (d[idx+3] < 5) { out[idx]=out[idx+1]=out[idx+2]=0; out[idx+3]=255; continue; }
+      if (d[idx+3] < 5) {
+        out[idx]=out[idx+1]=out[idx+2]=0;
+        out[idx+3]=255; continue;
+      }
+
+      // Ambil warna ASLI dari gambar upload
+      let r = d[idx];
+      let gv = d[idx+1];
+      let bv = d[idx+2];
+
+      // Seam: dark pixel → blend ke warna seam picker
       const g = grayCache[y*W+x] * 255;
-      let t  = g < thresh ? seamInt : 0;
-      let ht = g > 200 ? 0.3 : 0;
-      let r  = br*(1-t-ht) + sr*t + hr*ht;
-      let gv = bg*(1-t-ht) + sg*t + hg*ht;
-      let bv = bb*(1-t-ht) + sb*t + hb*ht;
+      if (g < thresh) {
+        const t = seamInt;
+        r  = clamp(r  * (1-t) + sr * t);
+        gv = clamp(gv * (1-t) + sg * t);
+        bv = clamp(bv * (1-t) + sb * t);
+      }
+
+      // Brightness
       r = clamp(r+bright); gv = clamp(gv+bright); bv = clamp(bv+bright);
+
+      // Saturation
       const lum = 0.299*r + 0.587*gv + 0.114*bv;
-      r = clamp(lum + sat*(r-lum)); gv = clamp(lum + sat*(gv-lum)); bv = clamp(lum + sat*(bv-lum));
+      r  = clamp(lum + sat*(r-lum));
+      gv = clamp(lum + sat*(gv-lum));
+      bv = clamp(lum + sat*(bv-lum));
+
       out[idx]=r; out[idx+1]=gv; out[idx+2]=bv; out[idx+3]=255;
     }
   }
